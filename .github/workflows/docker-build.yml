@@ -40,10 +40,14 @@ jobs:
           FORMATTED_TAG=${BRANCH_NAME//\//-}
           
           echo "tag=$FORMATTED_TAG" >> $GITHUB_OUTPUT
+          
+          # Docker verlangt, dass der Repository-Name komplett klein geschrieben ist
+          REPO_LOWERCASE=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "repo=$REPO_LOWERCASE" >> $GITHUB_OUTPUT
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.format_tag.outputs.tag }}
+          tags: ${{ env.REGISTRY }}/${{ steps.format_tag.outputs.repo }}:${{ steps.format_tag.outputs.tag }}
