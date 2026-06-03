@@ -1,8 +1,6 @@
 services:
   prefetcharr:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/panda260/prefetcharr:latest
     container_name: prefetcharr
     environment:
       - |

@@ -26,7 +26,7 @@ Or with docker compose:
 ```yml
 services:
   prefetcharr:
-    image: phueber/prefetcharr:latest
+    image: ghcr.io/panda260/prefetcharr:latest
     container_name: prefetcharr
     environment:
       - |
