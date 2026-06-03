@@ -36,6 +36,7 @@ pub struct NowPlaying {
     pub user: User,
     pub library: Option<String>,
     pub session_id: Option<String>,
+    pub item_path: Option<String>,
 }
 
 // Identity used for prefetch-side dedup. Excludes `session_id` so the same
@@ -198,6 +199,7 @@ pub mod test {
             },
             library: None,
             session_id: None,
+            item_path: None,
         }
     }
 

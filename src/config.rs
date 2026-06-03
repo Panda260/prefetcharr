@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 use crate::LegacyArgs;
 
@@ -28,6 +28,26 @@ pub struct Sonarr {
     pub api_key: String,
     /// Exclude series by tag
     pub exclude_tag: Option<String>,
+    /// Optional prefix to match media paths to this Sonarr instance
+    pub path: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum SingleOrVec<T> {
+    Single(T),
+    Vec(Vec<T>),
+}
+
+fn deserialize_single_or_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    match SingleOrVec::<T>::deserialize(deserializer)? {
+        SingleOrVec::Single(s) => Ok(vec![s]),
+        SingleOrVec::Vec(v) => Ok(v),
+    }
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -54,7 +74,8 @@ impl From<LogLevel> for tracing::Level {
 #[derive(Deserialize)]
 pub struct Config {
     pub media_server: MediaServer,
-    pub sonarr: Sonarr,
+    #[serde(deserialize_with = "deserialize_single_or_vec")]
+    pub sonarr: Vec<Sonarr>,
     /// Polling interval
     pub interval: u64,
     /// Logging directory
@@ -101,10 +122,11 @@ impl From<LegacyArgs> for Config {
             url: sonarr_url,
             api_key: sonarr_api_key,
             exclude_tag: None,
+            path: None,
         };
         Config {
             media_server,
-            sonarr,
+            sonarr: vec![sonarr],
             interval,
             log_dir,
             log_level: None,

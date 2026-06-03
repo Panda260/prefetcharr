@@ -28,11 +28,10 @@ struct Pending {
 
 pub struct Actor {
     rx: mpsc::Receiver<Message>,
-    sonarr_client: sonarr::Client,
+    sonarr_clients: Vec<(Option<String>, Option<sonarr::Tag>, sonarr::Client)>,
     seen: Seen<PrefetchKey>,
     prefetch_num: usize,
     request_seasons: bool,
-    exclude_tag: Option<sonarr::Tag>,
     queue: Option<Arc<dyn Queue + Send + Sync>>,
     pending: HashMap<String, Pending>,
     has_pending: Arc<AtomicBool>,
@@ -43,23 +42,28 @@ impl Actor {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         rx: mpsc::Receiver<Message>,
-        sonarr_client: sonarr::Client,
+        sonarr_clients: Vec<(Option<String>, Option<String>, sonarr::Client)>,
         seen: Seen<PrefetchKey>,
         prefetch_num: usize,
         request_seasons: bool,
-        exclude_tag: Option<String>,
         queue: Option<Arc<dyn Queue + Send + Sync>>,
         has_pending: Arc<AtomicBool>,
         pending_ttl: Duration,
     ) -> Self {
-        let exclude_tag = exclude_tag.map(sonarr::Tag::from);
+        let mut sonarr_clients: Vec<_> = sonarr_clients
+            .into_iter()
+            .map(|(p, t, c)| (p, t.map(sonarr::Tag::from), c))
+            .collect();
+            
+        // Sort by path length descending to avoid prefix collisions (e.g. /nas/media/serien-4k/ matches before /nas/media/serien/)
+        sonarr_clients.sort_by_key(|(p, _, _)| std::cmp::Reverse(p.as_ref().map_or(0, |s| s.len())));
+
         Self {
             rx,
-            sonarr_client,
+            sonarr_clients,
             seen,
             prefetch_num,
             request_seasons,
-            exclude_tag,
             queue,
             pending: HashMap::new(),
             has_pending,
@@ -124,14 +128,38 @@ impl Actor {
             return Ok(None);
         }
 
-        // find series
-        let mut series = self.find_series(np).await?;
+        // Determine the right client
+        let client_idx = self
+            .sonarr_clients
+            .iter()
+            .position(|(path, _, _)| {
+                if let (Some(path), Some(item_path)) = (path, &np.item_path) {
+                    let path_lower = path.to_lowercase();
+                    let item_path_lower = item_path.to_lowercase();
+                    item_path_lower.starts_with(&path_lower) || item_path_lower.contains(&path_lower)
+                } else {
+                    false
+                }
+            })
+            .unwrap_or(0);
+
+        let (path, _, sonarr_client) = &self.sonarr_clients[client_idx];
+        info!(
+            client_idx,
+            path = path.as_deref().unwrap_or("None"),
+            url = %sonarr_client.base_url(),
+            "matched Sonarr instance"
+        );
+
+        let mut series = self.find_series(np, client_idx).await?;
 
         info!(title = series.title.clone().unwrap_or_else(|| "?".to_string()), now_playing = ?np);
 
+        let (_, exclude_tag, sonarr_client) = &mut self.sonarr_clients[client_idx];
+
         // Resolve and match exclusion tag
-        if let Some(exclude_tag) = &mut self.exclude_tag {
-            self.sonarr_client.update_tag(exclude_tag).await;
+        if let Some(exclude_tag) = exclude_tag {
+            sonarr_client.update_tag(exclude_tag).await;
             if let Some(true) = series.is_tagged_with(exclude_tag) {
                 info!("excluded via tag");
                 return Ok(None);
@@ -144,8 +172,7 @@ impl Actor {
         }
 
         // fetch n next episodes
-        let episodes = self
-            .sonarr_client
+        let episodes = sonarr_client
             .episode_range(&series, np.season, np.episode, self.prefetch_num)
             .await?;
 
@@ -156,12 +183,12 @@ impl Actor {
 
         if episodes.len() < self.prefetch_num {
             info!("Not as many episodes announced, monitor new items instead");
-            self.sonarr_client
+            sonarr_client
                 .monitor_unannounced_episodes(&mut series)
                 .await?;
         } else if !series.monitored {
             series.monitored = true;
-            self.sonarr_client.put_series(&series).await?;
+            sonarr_client.put_series(&series).await?;
         }
 
         let missing_episodes: Vec<_> = episodes.into_iter().filter(|e| !e.has_file).collect();
@@ -186,8 +213,7 @@ impl Actor {
 
             let mut error = false;
             for season_num in season_numbers {
-                if let Err(err) = self
-                    .sonarr_client
+                if let Err(err) = sonarr_client
                     .search_season(&mut series, season_num)
                     .await
                 {
@@ -210,10 +236,10 @@ impl Actor {
                     e
                 })
                 .collect();
-            self.sonarr_client
+            sonarr_client
                 .update_episode_monitoring(&episodes_to_search)
                 .await?;
-            self.sonarr_client
+            sonarr_client
                 .search_episodes(&episodes_to_search)
                 .await?;
         }
@@ -281,8 +307,10 @@ impl Actor {
     async fn find_series(
         &mut self,
         np: &NowPlaying,
+        client_idx: usize,
     ) -> Result<sonarr::SeriesResource, anyhow::Error> {
-        let series = self.sonarr_client.series().await?;
+        let (_, _, sonarr_client) = &self.sonarr_clients[client_idx];
+        let series = sonarr_client.series().await?;
         let series = series
             .into_iter()
             .find(|s| match &np.series {
@@ -360,11 +388,10 @@ mod test {
         let sonarr = crate::sonarr::Client::new(fake.url(), "secret").unwrap();
         super::Actor::new(
             rx,
-            sonarr,
+            vec![(None, None, sonarr)],
             once::Seen::default(),
             prefetch_num,
             false,
-            None,
             Some(queue as Arc<dyn Queue + Send + Sync>),
             has_pending,
             pending_ttl,
@@ -408,11 +435,10 @@ mod test {
         let sonarr = crate::sonarr::Client::new(fake.url(), "secret").unwrap();
         super::Actor::new(
             rx,
-            sonarr,
+            vec![(None, exclude_tag, sonarr)],
             once::Seen::default(),
             prefetch_num,
             request_seasons,
-            exclude_tag,
             None,
             Arc::new(AtomicBool::new(false)),
             Duration::from_secs(3600),

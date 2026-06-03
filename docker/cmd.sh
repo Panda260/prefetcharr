@@ -15,9 +15,7 @@ test -z "$PREFETCHARR_CONFIG" -a ! -f /config \
     ${LIBRARIES:+--libraries "${LIBRARIES}"} \
     --connection-retries 6 
 
-test -f /config || sh -c "cat > /config <<EOF
-$PREFETCHARR_CONFIG
-EOF"
+test -f /config || printf "%s\n" "$PREFETCHARR_CONFIG" > /config
 
 exec /prefetcharr --config /config
 

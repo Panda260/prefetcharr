@@ -160,6 +160,7 @@ impl ProvideNowPlaying for Client {
             user,
             library,
             session_id: None,
+            item_path: None,
         })
     }
 }

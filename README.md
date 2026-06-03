@@ -49,10 +49,18 @@ services:
         # users = [ "John", "12345", "Axel F" ] # Optional: Only monitor sessions for specific user IDs or names
         # libraries = [ "TV Shows", "Anime" ]   # Optional: Only monitor sessions for specific libraries
 
-        [sonarr]
+        # Sonarr instance 1
+        [[sonarr]]
         url = "http://example.com/sonarr" # Sonarr baseurl
         api_key = "<YOUR KEY HERE>"       # Sonarr API key
         # exclude_tag = "no_prefetch"     # Optional: Exclude series by tag
+        # path = "/path/to/series/" # Optional: Match Jellyfin/Emby path prefix
+
+        # Sonarr instance 2 (Optional)
+        # [[sonarr]]
+        # url = "http://example.com/sonarr-4k"
+        # api_key = "<YOUR KEY HERE>"
+        # path = "/path/to/series-4k/"
 
     volumes:
       - /path/to/log/dir:/log

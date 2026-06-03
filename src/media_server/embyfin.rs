@@ -235,6 +235,7 @@ impl super::ProvideNowPlaying for Client {
             user,
             library,
             session_id,
+            item_path: Some(item_path),
         };
 
         Ok(now_playing)

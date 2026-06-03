@@ -183,6 +183,7 @@ impl ProvideNowPlaying for Client {
             user,
             library,
             session_id,
+            item_path: None,
         })
     }
 }

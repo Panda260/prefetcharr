@@ -109,15 +109,46 @@ pub enum Message {
 }
 
 fn config() -> anyhow::Result<Config> {
-    if let Ok(args) = LegacyArgs::try_parse() {
-        Ok(Config::from(args))
+    let mut config = if let Ok(args) = LegacyArgs::try_parse() {
+        Config::from(args)
     } else {
         let args = Args::parse();
         let toml = read_to_string(args.config.as_path())
             .with_context(|| format!("reading config from {}", args.config.to_string_lossy()))?;
-        let config = toml::from_str(&toml).context("parsing TOML config")?;
-        Ok(config)
+        toml::from_str(&toml).context("parsing TOML config")?
+    };
+
+    let mut env_sonarrs = std::collections::BTreeMap::new();
+    for (key, value) in std::env::vars() {
+        if let Some(rest) = key.strip_prefix("SONARR_") {
+            let parts: Vec<&str> = rest.splitn(2, '_').collect();
+            if parts.len() == 2 {
+                if let Ok(id) = parts[0].parse::<u32>() {
+                    let prop = parts[1];
+                    let entry = env_sonarrs.entry(id).or_insert_with(|| config::Sonarr {
+                        url: String::new(),
+                        api_key: String::new(),
+                        exclude_tag: None,
+                        path: None,
+                    });
+                    match prop {
+                        "URL" => entry.url = value,
+                        "API_KEY" => entry.api_key = value,
+                        "PATH" => entry.path = Some(value),
+                        _ => {}
+                    }
+                }
+            }
+        }
     }
+
+    for (_, sonarr) in env_sonarrs {
+        if !sonarr.url.is_empty() && !sonarr.api_key.is_empty() {
+            config.sonarr.push(sonarr);
+        }
+    }
+
+    Ok(config)
 }
 
 #[tokio::main]
@@ -147,12 +178,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn run(config: Config) -> anyhow::Result<()> {
     let (tx, rx) = mpsc::channel(1);
 
-    let sonarr_client = sonarr::Client::new(&config.sonarr.url, &config.sonarr.api_key)
-        .context("Invalid connection parameters for Sonarr")?;
-    util::retry(config.connection_retries, async || {
-        sonarr_client.probe().await.context("Probing Sonarr failed")
-    })
-    .await?;
+    let mut sonarr_clients = Vec::new();
+    for s_conf in &config.sonarr {
+        let client = sonarr::Client::new(&s_conf.url, &s_conf.api_key)
+            .context("Invalid connection parameters for Sonarr")?;
+        util::retry(config.connection_retries, async || {
+            client.probe().await.context("Probing Sonarr failed")
+        })
+        .await?;
+        sonarr_clients.push((s_conf.path.clone(), s_conf.exclude_tag.clone(), client));
+    }
+
+    if sonarr_clients.is_empty() {
+        return Err(anyhow::anyhow!("No Sonarr instances configured"));
+    }
 
     info!("Start watching {} sessions", config.media_server.r#type);
     let interval = Duration::from_secs(config.interval);
@@ -220,11 +259,10 @@ async fn run(config: Config) -> anyhow::Result<()> {
     let seen = Seen::default();
     let mut actor = process::Actor::new(
         rx,
-        sonarr_client,
+        sonarr_clients,
         seen,
         config.prefetch_num,
         config.request_seasons,
-        config.sonarr.exclude_tag,
         queue,
         has_pending,
         pending_ttl,

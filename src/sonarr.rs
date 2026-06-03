@@ -41,6 +41,10 @@ impl Client {
         Ok(Self { base_url, client })
     }
 
+    pub fn base_url(&self) -> &Url {
+        &self.base_url
+    }
+
     async fn get<Out: DeserializeOwned, Param: Serialize + ?Sized>(
         &self,
         path: &str,
