@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 
+## [1.6.1] - 2026-05-01
+
+### Fixed
+
+- `append_to_queue` no longer appends episodes that are already in the library.
+  Re-enqueueing existing files conflicted with clients (e.g. Emby) that resolve
+  "next up" locally and could cause out-of-order or duplicate playback.
+
+
 ## [1.6.0] - 2026-04-29
 
 ### Added

@@ -13,7 +13,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::{
     Message,
-    media_server::{NowPlaying, PrefetchKey, Queue, Series},
+    media_server::{EpisodeRef, NowPlaying, PrefetchKey, Queue, Series},
     sonarr,
     util::once::Seen,
 };
@@ -22,7 +22,7 @@ struct Pending {
     series: Series,
     // BTreeSet so iteration is always (season, episode) ascending — the
     // backend Queue::append impls must receive episodes in playback order.
-    owed: BTreeSet<(i32, i32)>,
+    owed: BTreeSet<EpisodeRef>,
     last_seen: Instant,
 }
 
@@ -122,7 +122,7 @@ impl Actor {
         result.map(|_| ())
     }
 
-    async fn run_prefetch(&mut self, np: &NowPlaying) -> anyhow::Result<Option<Vec<(i32, i32)>>> {
+    async fn run_prefetch(&mut self, np: &NowPlaying) -> anyhow::Result<Option<Vec<EpisodeRef>>> {
         if !self.seen.once(PrefetchKey::from(np)) {
             debug!(now_playing = ?np, "skip previously processed item");
             return Ok(None);
@@ -176,11 +176,6 @@ impl Actor {
             .episode_range(&series, np.season, np.episode, self.prefetch_num)
             .await?;
 
-        let pairs: Vec<(i32, i32)> = episodes
-            .iter()
-            .map(|e| (e.season_number, e.episode_number))
-            .collect();
-
         if episodes.len() < self.prefetch_num {
             info!("Not as many episodes announced, monitor new items instead");
             sonarr_client
@@ -192,6 +187,10 @@ impl Actor {
         }
 
         let missing_episodes: Vec<_> = episodes.into_iter().filter(|e| !e.has_file).collect();
+        let pairs: Vec<EpisodeRef> = missing_episodes
+            .iter()
+            .map(|e| EpisodeRef::new(e.season_number, e.episode_number))
+            .collect();
         let mut episodes_to_search = Vec::new();
 
         if self.request_seasons {
@@ -276,7 +275,7 @@ impl Actor {
         if pending.owed.is_empty() {
             return;
         }
-        let owed: Vec<(i32, i32)> = pending.owed.iter().copied().collect();
+        let owed: Vec<EpisodeRef> = pending.owed.iter().copied().collect();
         match queue.append(np, &owed).await {
             Ok(success) => {
                 if let Some(entry) = self.pending.get_mut(sid) {
@@ -336,16 +335,16 @@ mod test {
 
     use crate::{
         fake_sonarr::{FakeSonarr, make_episode, make_season, make_series},
-        media_server::{NowPlaying, Queue, Series, test::np_default},
+        media_server::{EpisodeRef, NowPlaying, Queue, Series, test::np_default},
         util::once,
     };
 
-    type AppendCall = (String, Vec<(i32, i32)>);
+    type AppendCall = (String, Vec<EpisodeRef>);
 
     #[derive(Default)]
     struct FakeQueue {
         calls: Mutex<Vec<AppendCall>>,
-        next_success: Mutex<Option<HashSet<(i32, i32)>>>,
+        next_success: Mutex<Option<HashSet<EpisodeRef>>>,
     }
 
     impl FakeQueue {
@@ -353,7 +352,7 @@ mod test {
             self.calls.lock().unwrap().clone()
         }
 
-        fn override_next(&self, success: HashSet<(i32, i32)>) {
+        fn override_next(&self, success: HashSet<EpisodeRef>) {
             *self.next_success.lock().unwrap() = Some(success);
         }
     }
@@ -362,10 +361,10 @@ mod test {
         fn append(
             &self,
             np: &NowPlaying,
-            episodes: &[(i32, i32)],
-        ) -> BoxFuture<'_, anyhow::Result<HashSet<(i32, i32)>>> {
+            episodes: &[EpisodeRef],
+        ) -> BoxFuture<'_, anyhow::Result<HashSet<EpisodeRef>>> {
             let sid = np.session_id.clone().unwrap_or_default();
-            let pairs: Vec<(i32, i32)> = episodes.to_vec();
+            let pairs: Vec<EpisodeRef> = episodes.to_vec();
             self.calls.lock().unwrap().push((sid, pairs.clone()));
             let success = self
                 .next_success
@@ -899,9 +898,49 @@ mod test {
         // Episodes must reach the backend in playback order, even across the
         // season boundary — the player would otherwise watch them out of
         // sequence.
-        assert_eq!(pairs, &vec![(1, 8), (2, 1)]);
+        assert_eq!(pairs, &vec![EpisodeRef::new(1, 8), EpisodeRef::new(2, 1)]);
         // Default fake returns full success → has_pending falls back to false
         assert!(!has_pending.load(Ordering::Relaxed));
+        Ok(())
+    }
+
+    // Episodes already on disk must not be appended to the play queue —
+    // some clients (e.g. Emby) play a single item and resolve "next up"
+    // locally, so re-enqueueing existing files fights with the client.
+    #[tokio::test]
+    #[test_log::test]
+    async fn queue_skips_episodes_with_file() -> Result<(), Box<dyn std::error::Error>> {
+        let fake = FakeSonarr::start().await;
+        fake.add_series(default_series());
+        let mut eps = default_episodes();
+        // s01e08 is already in the library
+        eps[7]["hasFile"] = true.into();
+        fake.add_episodes(eps);
+
+        let queue = Arc::new(FakeQueue::default());
+        let has_pending = Arc::new(AtomicBool::new(false));
+        let mut actor = actor_with_queue(
+            &fake,
+            2,
+            queue.clone(),
+            has_pending.clone(),
+            Duration::from_secs(3600),
+        );
+
+        actor
+            .prefetch(NowPlaying {
+                series: Series::Title("TestShow".to_string()),
+                episode: 7,
+                season: 1,
+                session_id: Some("s1".into()),
+                ..np_default()
+            })
+            .await?;
+
+        let calls = queue.calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "s1");
+        assert_eq!(calls[0].1, vec![EpisodeRef::new(2, 1)]);
         Ok(())
     }
 
@@ -924,8 +963,8 @@ mod test {
             Duration::from_secs(3600),
         );
 
-        // First call: fake returns only (1, 8) as success.
-        queue.override_next([(1, 8)].into_iter().collect());
+        // First call: fake returns only s01e08 as success.
+        queue.override_next([EpisodeRef::new(1, 8)].into_iter().collect());
         let np = NowPlaying {
             series: Series::Title("TestShow".to_string()),
             episode: 7,
@@ -940,8 +979,8 @@ mod test {
         actor.prefetch(np).await?;
         let calls = queue.calls();
         assert_eq!(calls.len(), 2);
-        let second_pairs: HashSet<(i32, i32)> = calls[1].1.iter().copied().collect();
-        assert_eq!(second_pairs, [(2, 1)].into_iter().collect());
+        let second_pairs: HashSet<EpisodeRef> = calls[1].1.iter().copied().collect();
+        assert_eq!(second_pairs, [EpisodeRef::new(2, 1)].into_iter().collect());
         assert!(!has_pending.load(Ordering::Relaxed));
         Ok(())
     }
