@@ -281,17 +281,17 @@ impl Client {
     pub async fn monitor_next_season_only(&self, series: &mut SeriesResource) -> Result<()> {
         series.monitored = true;
 
-        // Determine the highest real (non-special) season number Sonarr knows about.
-        let highest_known_season = series
+        // Determine the highest real (non-special) season number that is currently monitored.
+        let highest_monitored_season = series
             .seasons
             .iter()
-            .filter(|s| s.season_number > 0)
+            .filter(|s| s.season_number > 0 && s.monitored)
             .map(|s| s.season_number)
-            .max();
+            .max()
+            .unwrap_or(0);
 
-        let next_season_exists = highest_known_season
-            .map(|n| series.season(n + 1).is_some())
-            .unwrap_or(false);
+        let next_season_num = std::cmp::max(1, highest_monitored_season + 1);
+        let next_season_exists = series.season(next_season_num).is_some();
 
         if next_season_exists {
             // The next season is already in Sonarr → keep monitorNewItems = None.

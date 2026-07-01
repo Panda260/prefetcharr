@@ -1110,8 +1110,8 @@ mod test {
             5678,
             &[
                 make_season(0, false, true),
-                make_season(1, false, true),
-                make_season(2, false, true),
+                make_season(1, true, true),
+                make_season(2, true, true),
                 make_season(3, false, true),
             ],
         );
@@ -1159,8 +1159,8 @@ mod test {
             5678,
             &[
                 make_season(0, false, true),
-                make_season(1, false, true),
-                make_season(2, false, true),
+                make_season(1, true, true),
+                make_season(2, true, true),
             ],
         );
         fake.add_series(series);
