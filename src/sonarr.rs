@@ -270,6 +270,64 @@ impl Client {
         Ok(())
     }
 
+    // Controlled season monitoring: ensure only one season ahead is monitored.
+    //
+    // - Sets monitorNewItems = None as the baseline (Sonarr won't auto-add new seasons).
+    // - If the next expected season is NOT yet known to Sonarr (not yet announced),
+    //   temporarily sets monitorNewItems = All so Sonarr can discover it on its next
+    //   metadata refresh. This is reverted to None on the following scan once the
+    //   season appears.
+    // - Episode state of the last known season is preserved.
+    pub async fn monitor_next_season_only(&self, series: &mut SeriesResource) -> Result<()> {
+        series.monitored = true;
+
+        // Determine the highest real (non-special) season number Sonarr knows about.
+        let highest_known_season = series
+            .seasons
+            .iter()
+            .filter(|s| s.season_number > 0)
+            .map(|s| s.season_number)
+            .max();
+
+        let next_season_exists = highest_known_season
+            .map(|n| series.season(n + 1).is_some())
+            .unwrap_or(false);
+
+        if next_season_exists {
+            // The next season is already in Sonarr → keep monitorNewItems = None.
+            // We don't want Sonarr to pull in yet another season beyond that.
+            series.monitor_new_items = Some(NewItemMonitorTypes::None);
+        } else {
+            // The next season hasn't been announced yet → allow Sonarr to discover it.
+            series.monitor_new_items = Some(NewItemMonitorTypes::All);
+        }
+
+        // Monitor new episode announcements in last season, but restore episode state.
+        if let Some(last_season) = series.seasons.last_mut() {
+            last_season.monitored = true;
+        }
+
+        if let Some(last_season) = series.seasons.last() {
+            let original_episodes = self.episodes_season(series, last_season).await?;
+            self.put_series(series).await?;
+            self.update_episode_monitoring(&original_episodes).await?;
+        } else {
+            self.put_series(series).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Lightweight reset: sets `monitorNewItems = none` and `monitored = true`
+    /// for a series without touching season or episode state.
+    /// Used by the `controlled_season_monitoring = "all"` startup sweep.
+    pub async fn set_monitor_new_items_none(&self, series: &mut SeriesResource) -> Result<()> {
+        series.monitored = true;
+        series.monitor_new_items = Some(NewItemMonitorTypes::None);
+        self.put_series(series).await?;
+        Ok(())
+    }
+
     pub async fn search_episodes(&self, episodes: &[EpisodeResource]) -> Result<serde_json::Value> {
         let episode_ids: Vec<_> = episodes.iter().map(|e| e.id).collect();
         info!(?episode_ids, "Searching episodes");

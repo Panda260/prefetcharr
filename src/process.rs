@@ -13,6 +13,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::{
     Message,
+    config::ControlledSeasonMonitoring,
     media_server::{EpisodeRef, NowPlaying, PrefetchKey, Queue, Series},
     sonarr,
     util::once::Seen,
@@ -32,6 +33,7 @@ pub struct Actor {
     seen: Seen<PrefetchKey>,
     prefetch_num: usize,
     request_seasons: bool,
+    controlled_season_monitoring: ControlledSeasonMonitoring,
     queue: Option<Arc<dyn Queue + Send + Sync>>,
     pending: HashMap<String, Pending>,
     has_pending: Arc<AtomicBool>,
@@ -46,6 +48,7 @@ impl Actor {
         seen: Seen<PrefetchKey>,
         prefetch_num: usize,
         request_seasons: bool,
+        controlled_season_monitoring: ControlledSeasonMonitoring,
         queue: Option<Arc<dyn Queue + Send + Sync>>,
         has_pending: Arc<AtomicBool>,
         pending_ttl: Duration,
@@ -64,6 +67,7 @@ impl Actor {
             seen,
             prefetch_num,
             request_seasons,
+            controlled_season_monitoring,
             queue,
             pending: HashMap::new(),
             has_pending,
@@ -177,10 +181,20 @@ impl Actor {
             .await?;
 
         if episodes.len() < self.prefetch_num {
-            info!("Not as many episodes announced, monitor new items instead");
-            sonarr_client
-                .monitor_unannounced_episodes(&mut series)
-                .await?;
+            match self.controlled_season_monitoring {
+                ControlledSeasonMonitoring::OnDemand | ControlledSeasonMonitoring::All => {
+                    info!("Not as many episodes announced, applying controlled season monitoring");
+                    sonarr_client
+                        .monitor_next_season_only(&mut series)
+                        .await?;
+                }
+                ControlledSeasonMonitoring::Off => {
+                    info!("Not as many episodes announced, monitor new items instead");
+                    sonarr_client
+                        .monitor_unannounced_episodes(&mut series)
+                        .await?;
+                }
+            }
         } else if !series.monitored {
             series.monitored = true;
             sonarr_client.put_series(&series).await?;
@@ -334,6 +348,7 @@ mod test {
     use tokio::sync::mpsc;
 
     use crate::{
+        config::ControlledSeasonMonitoring,
         fake_sonarr::{FakeSonarr, make_episode, make_season, make_series},
         media_server::{EpisodeRef, NowPlaying, Queue, Series, test::np_default},
         util::once,
@@ -391,6 +406,7 @@ mod test {
             once::Seen::default(),
             prefetch_num,
             false,
+            ControlledSeasonMonitoring::Off,
             Some(queue as Arc<dyn Queue + Send + Sync>),
             has_pending,
             pending_ttl,
@@ -438,6 +454,27 @@ mod test {
             once::Seen::default(),
             prefetch_num,
             request_seasons,
+            ControlledSeasonMonitoring::Off,
+            None,
+            Arc::new(AtomicBool::new(false)),
+            Duration::from_secs(3600),
+        )
+    }
+
+    fn actor_controlled(
+        fake: &FakeSonarr,
+        prefetch_num: usize,
+        request_seasons: bool,
+    ) -> super::Actor {
+        let (_tx, rx) = mpsc::channel(1);
+        let sonarr = crate::sonarr::Client::new(fake.url(), "secret").unwrap();
+        super::Actor::new(
+            rx,
+            vec![(None, None, sonarr)],
+            once::Seen::default(),
+            prefetch_num,
+            request_seasons,
+            ControlledSeasonMonitoring::OnDemand,
             None,
             Arc::new(AtomicBool::new(false)),
             Duration::from_secs(3600),
@@ -1056,6 +1093,132 @@ mod test {
 
         // No has_pending observable here, but no panic either.
         // The Sonarr search still happened, and that's covered by other tests.
+        Ok(())
+    }
+
+    // controlled_season_monitoring = true, next season (S03) is already in Sonarr:
+    // monitorNewItems must be set to None so no further seasons are auto-added.
+    #[tokio::test]
+    #[test_log::test]
+    async fn controlled_monitoring_next_season_known() -> Result<(), Box<dyn std::error::Error>> {
+        let fake = FakeSonarr::start().await;
+
+        // Series has S0 (specials), S1, S2, S3 — S3 is the "next" season for a S2 watcher
+        let series = make_series(
+            1234,
+            "TestShow",
+            5678,
+            &[
+                make_season(0, false, true),
+                make_season(1, false, true),
+                make_season(2, false, true),
+                make_season(3, false, true),
+            ],
+        );
+        fake.add_series(series);
+
+        // Only S1 + S2 episodes available; user is at S2E07 → episode_range returns only S2E08 (1 < prefetch_num=3)
+        let mut eps = Vec::new();
+        for s in 1..=2_i32 {
+            for e in 1..=8_i32 {
+                eps.push(make_episode(s * 10 + e, 1234, s, e, false));
+            }
+        }
+        fake.add_episodes(eps);
+
+        actor_controlled(&fake, 3, false)
+            .prefetch(NowPlaying {
+                series: Series::Title("TestShow".to_string()),
+                episode: 7,
+                season: 2,
+                ..np_default()
+            })
+            .await?;
+
+        // S3 already exists → monitorNewItems must be "none"
+        let state = fake.series_state(1234);
+        assert_eq!(
+            state["monitorNewItems"].as_str().unwrap(),
+            "none",
+            "expected monitorNewItems=none because S3 is already known"
+        );
+        Ok(())
+    }
+
+    // controlled_season_monitoring = true, next season (S03) is NOT yet in Sonarr:
+    // monitorNewItems must be set to All so Sonarr can discover the new season.
+    #[tokio::test]
+    #[test_log::test]
+    async fn controlled_monitoring_next_season_unknown() -> Result<(), Box<dyn std::error::Error>> {
+        let fake = FakeSonarr::start().await;
+
+        // Series only has S0, S1, S2 — no S3 announced yet
+        let series = make_series(
+            1234,
+            "TestShow",
+            5678,
+            &[
+                make_season(0, false, true),
+                make_season(1, false, true),
+                make_season(2, false, true),
+            ],
+        );
+        fake.add_series(series);
+
+        // User at S2E07 → episode_range returns only S2E08 (1 < prefetch_num=3)
+        let mut eps = Vec::new();
+        for s in 1..=2_i32 {
+            for e in 1..=8_i32 {
+                eps.push(make_episode(s * 10 + e, 1234, s, e, false));
+            }
+        }
+        fake.add_episodes(eps);
+
+        actor_controlled(&fake, 3, false)
+            .prefetch(NowPlaying {
+                series: Series::Title("TestShow".to_string()),
+                episode: 7,
+                season: 2,
+                ..np_default()
+            })
+            .await?;
+
+        // S3 doesn't exist yet → monitorNewItems must be "all" so Sonarr discovers it
+        let state = fake.series_state(1234);
+        assert_eq!(
+            state["monitorNewItems"].as_str().unwrap(),
+            "all",
+            "expected monitorNewItems=all because S3 is not yet known to Sonarr"
+        );
+        Ok(())
+    }
+
+    // controlled_season_monitoring = false (default): existing behaviour unchanged —
+    // monitorNewItems stays "all" (original monitor_unannounced_episodes path).
+    #[tokio::test]
+    #[test_log::test]
+    async fn controlled_monitoring_disabled_preserves_original_behaviour(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let fake = FakeSonarr::start().await;
+        fake.add_series(default_series()); // S0, S1, S2
+        fake.add_episodes(default_episodes()); // user at S2E07
+
+        actor(&fake, 3, false)
+            .prefetch(NowPlaying {
+                series: Series::Title("TestShow".to_string()),
+                episode: 7,
+                season: 2,
+                ..np_default()
+            })
+            .await?;
+
+        // Default path: monitorNewItems = "all"
+        let state = fake.series_state(1234);
+        assert_eq!(
+            state["monitorNewItems"].as_str().unwrap(),
+            "all",
+            "expected monitorNewItems=all (original behaviour) when feature is disabled"
+        );
         Ok(())
     }
 }

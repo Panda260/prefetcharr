@@ -13,6 +13,10 @@ services:
         prefetch_num = 3         # Number of episodes to make available in advance
         request_seasons = true   # Always request full seasons to prefer season packs
         append_to_queue = false  # Experimental: Append upcoming episodes to the player's active queue.
+        controlled_season_monitoring = "off"  # "off" (default), "on_demand", or "all"
+                                              # "off"       – original behaviour, Sonarr monitorNewItems unchanged
+                                              # "on_demand" – limit to one season ahead while a user is actively watching
+                                              # "all"       – same as on_demand + reset ALL series to monitorNewItems=none on startup
         connection_retries = 6   # Number of retries for the initial connection probing
 
         [media_server]

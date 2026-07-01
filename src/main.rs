@@ -19,7 +19,7 @@ use tokio_util::sync::PollSender;
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::{media_server::plex, util::once::Seen};
+use crate::{config::ControlledSeasonMonitoring, media_server::plex, util::once::Seen};
 
 mod config;
 #[cfg(test)]
@@ -193,6 +193,30 @@ async fn run(config: Config) -> anyhow::Result<()> {
         return Err(anyhow::anyhow!("No Sonarr instances configured"));
     }
 
+    // Startup sweep: when mode is "all", immediately set monitorNewItems = none
+    // for every series across all Sonarr instances. Errors are non-fatal so a
+    // single unreachable series doesn't abort startup.
+    if config.controlled_season_monitoring == ControlledSeasonMonitoring::All {
+        info!("controlled_season_monitoring=all: running startup sweep");
+        for (_, _, client) in &sonarr_clients {
+            match client.series().await {
+                Ok(all_series) => {
+                    for mut s in all_series {
+                        if let Err(e) = client.set_monitor_new_items_none(&mut s).await {
+                            warn!(
+                                series_id = s.id,
+                                title = ?s.title,
+                                "startup sweep: failed to update series: {e:#}"
+                            );
+                        }
+                    }
+                }
+                Err(e) => warn!("startup sweep: failed to fetch series: {e:#}"),
+            }
+        }
+        info!("controlled_season_monitoring=all: startup sweep complete");
+    }
+
     info!("Start watching {} sessions", config.media_server.r#type);
     let interval = Duration::from_secs(config.interval);
     let (client, queue): (
@@ -263,6 +287,7 @@ async fn run(config: Config) -> anyhow::Result<()> {
         seen,
         config.prefetch_num,
         config.request_seasons,
+        config.controlled_season_monitoring,
         queue,
         has_pending,
         pending_ttl,

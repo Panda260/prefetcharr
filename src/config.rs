@@ -71,6 +71,28 @@ impl From<LogLevel> for tracing::Level {
     }
 }
 
+/// Controls whether prefetcharr limits Sonarr to monitoring only one season
+/// ahead, preventing automatic monitoring of all future seasons.
+///
+/// - `"off"` (default): disabled, original Sonarr behaviour is untouched.
+/// - `"on_demand"`: applied only when prefetcharr actively processes a series
+///   (i.e. a user is currently watching it).
+/// - `"all"`: on startup, all series in Sonarr are set to `monitorNewItems =
+///   none` immediately; afterwards `on_demand` rules apply.
+#[derive(Clone, Copy, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ControlledSeasonMonitoring {
+    /// Disabled — original behaviour, `monitorNewItems` is never changed by
+    /// this feature.
+    #[default]
+    Off,
+    /// Only applied when prefetcharr actively processes a series.
+    OnDemand,
+    /// On startup, all series are immediately set to `monitorNewItems = none`,
+    /// then `on_demand` rules apply for future scans.
+    All,
+}
+
 #[derive(Deserialize)]
 pub struct Config {
     pub media_server: MediaServer,
@@ -91,6 +113,9 @@ pub struct Config {
     /// Append upcoming episodes to the active player queue
     #[serde(default)]
     pub append_to_queue: bool,
+    /// Controls season-ahead monitoring behaviour. See `ControlledSeasonMonitoring`.
+    #[serde(default)]
+    pub controlled_season_monitoring: ControlledSeasonMonitoring,
     #[serde(default)]
     pub legacy: bool,
 }
@@ -134,6 +159,7 @@ impl From<LegacyArgs> for Config {
             request_seasons: true,
             connection_retries,
             append_to_queue: false,
+            controlled_season_monitoring: ControlledSeasonMonitoring::Off,
             legacy: true,
         }
     }

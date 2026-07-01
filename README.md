@@ -1,7 +1,56 @@
 # prefetcharr
 
-Have [Sonarr][sonarr] automatically fetch the next episodes of the show you’re
+Have [Sonarr][sonarr] automatically fetch the next episodes of the show you're
 watching on [Jellyfin][jellyfin]/[Emby][emby]/[Plex][plex].
+
+---
+
+## ✨ Features added in this fork
+
+> _This is a fork of [p-hueber/prefetcharr](https://github.com/p-hueber/prefetcharr)
+> maintained by [panda260](https://github.com/panda260/prefetcharr).
+> The additions below were implemented with AI assistance (Google Deepmind Antigravity)._
+
+### Multi-Instance Sonarr Support
+
+Run prefetcharr against **multiple Sonarr instances** at the same time (e.g. one
+for 1080p, one for 4K). Each instance is matched to playback events by a
+configurable `path` prefix.
+
+```toml
+[[sonarr]]
+url     = "http://sonarr-hd:8989"
+api_key = "<KEY>"
+path    = "/nas/media/series/"
+
+[[sonarr]]
+url     = "http://sonarr-4k:8989"
+api_key = "<KEY>"
+path    = "/nas/media/series-4k/"
+```
+
+See [CHANGES_FORK.md](CHANGES_FORK.md) for the full documentation.
+
+### Controlled Season Monitoring (`controlled_season_monitoring`)
+
+Prevents Sonarr from automatically monitoring **all future seasons** just
+because a new one is announced. Instead, prefetcharr limits Sonarr to keeping
+only **one season ahead** monitored.
+
+| Value | Behaviour |
+|-------|-----------|
+| `"off"` | **Default** — original behaviour, nothing changes. |
+| `"on_demand"` | Limit to one season ahead while a user is actively watching. |
+| `"all"` | Same as `on_demand` + reset **all** series immediately on startup. |
+
+```toml
+# In PREFETCHARR_CONFIG:
+controlled_season_monitoring = "on_demand"
+```
+
+See [CHANGES_FORK.md](CHANGES_FORK.md) for a detailed explanation of the logic.
+
+---
 
 ## Details
 
