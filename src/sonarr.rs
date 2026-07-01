@@ -94,6 +94,36 @@ impl Client {
     }
 
     #[instrument(skip_all)]
+    pub async fn get_or_create_tag(&self, label: &str) -> Result<i32> {
+        let tags: Vec<TagResource> = self.get("tag", None::<&()>).await?;
+        if let Some(tag) = tags.iter().find(|t| t.label.as_deref() == Some(label)) {
+            return Ok(tag.id);
+        }
+
+        let cmd = json!({
+            "label": label
+        });
+
+        let mut url = self.base_url.clone();
+        url.path_segments_mut()
+            .map_err(|()| anyhow!("url is relative"))?
+            .push("api")
+            .push("v3")
+            .push("tag");
+
+        let response = self
+            .client
+            .post(url)
+            .json(&cmd)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        let created_tag: TagResource = response.json().await?;
+        Ok(created_tag.id)
+    }
+
+    #[instrument(skip_all)]
     pub async fn series(&self) -> Result<Vec<SeriesResource>> {
         let series = self
             .get::<Value, ()>("series", None)
@@ -278,7 +308,11 @@ impl Client {
     //   metadata refresh. This is reverted to None on the following scan once the
     //   season appears.
     // - Episode state of the last known season is preserved.
-    pub async fn monitor_next_season_only(&self, series: &mut SeriesResource) -> Result<()> {
+    pub async fn monitor_next_season_only(
+        &self,
+        series: &mut SeriesResource,
+        awaiting_tag_id: Option<i32>,
+    ) -> Result<()> {
         series.monitored = true;
 
         // Determine the highest real (non-special) season number that is currently monitored.
@@ -297,9 +331,20 @@ impl Client {
             // The next season is already in Sonarr → keep monitorNewItems = None.
             // We don't want Sonarr to pull in yet another season beyond that.
             series.monitor_new_items = Some(NewItemMonitorTypes::None);
+            
+            if let (Some(tag_id), Some(tags)) = (awaiting_tag_id, &mut series.tags) {
+                tags.retain(|&id| id != tag_id);
+            }
         } else {
             // The next season hasn't been announced yet → allow Sonarr to discover it.
             series.monitor_new_items = Some(NewItemMonitorTypes::All);
+            
+            if let Some(tag_id) = awaiting_tag_id {
+                let tags = series.tags.get_or_insert_with(Vec::new);
+                if !tags.contains(&tag_id) {
+                    tags.push(tag_id);
+                }
+            }
         }
 
         // Monitor new episode announcements in last season, but restore episode state.

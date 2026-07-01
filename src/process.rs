@@ -29,7 +29,7 @@ struct Pending {
 
 pub struct Actor {
     rx: mpsc::Receiver<Message>,
-    sonarr_clients: Vec<(Option<String>, Option<sonarr::Tag>, sonarr::Client)>,
+    sonarr_clients: Vec<(Option<String>, Option<sonarr::Tag>, sonarr::Client, Option<i32>)>,
     seen: Seen<PrefetchKey>,
     prefetch_num: usize,
     request_seasons: bool,
@@ -44,7 +44,7 @@ impl Actor {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         rx: mpsc::Receiver<Message>,
-        sonarr_clients: Vec<(Option<String>, Option<String>, sonarr::Client)>,
+        sonarr_clients: Vec<(Option<String>, Option<String>, sonarr::Client, Option<i32>)>,
         seen: Seen<PrefetchKey>,
         prefetch_num: usize,
         request_seasons: bool,
@@ -55,11 +55,11 @@ impl Actor {
     ) -> Self {
         let mut sonarr_clients: Vec<_> = sonarr_clients
             .into_iter()
-            .map(|(p, t, c)| (p, t.map(sonarr::Tag::from), c))
+            .map(|(p, t, c, tag)| (p, t.map(sonarr::Tag::from), c, tag))
             .collect();
             
         // Sort by path length descending to avoid prefix collisions (e.g. /nas/media/serien-4k/ matches before /nas/media/serien/)
-        sonarr_clients.sort_by_key(|(p, _, _)| std::cmp::Reverse(p.as_ref().map_or(0, |s| s.len())));
+        sonarr_clients.sort_by_key(|(p, _, _, _)| std::cmp::Reverse(p.as_ref().map_or(0, |s| s.len())));
 
         Self {
             rx,
@@ -136,7 +136,7 @@ impl Actor {
         let client_idx = self
             .sonarr_clients
             .iter()
-            .position(|(path, _, _)| {
+            .position(|(path, _, _, _)| {
                 if let (Some(path), Some(item_path)) = (path, &np.item_path) {
                     let path_lower = path.to_lowercase();
                     let item_path_lower = item_path.to_lowercase();
@@ -147,7 +147,7 @@ impl Actor {
             })
             .unwrap_or(0);
 
-        let (path, _, sonarr_client) = &self.sonarr_clients[client_idx];
+        let (path, _, sonarr_client, _) = &self.sonarr_clients[client_idx];
         info!(
             client_idx,
             path = path.as_deref().unwrap_or("None"),
@@ -159,7 +159,7 @@ impl Actor {
 
         info!(title = series.title.clone().unwrap_or_else(|| "?".to_string()), now_playing = ?np);
 
-        let (_, exclude_tag, sonarr_client) = &mut self.sonarr_clients[client_idx];
+        let (_, exclude_tag, sonarr_client, awaiting_tag_id) = &mut self.sonarr_clients[client_idx];
 
         // Resolve and match exclusion tag
         if let Some(exclude_tag) = exclude_tag {

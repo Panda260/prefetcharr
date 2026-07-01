@@ -209,7 +209,7 @@ async fn run(config: Config) -> anyhow::Result<()> {
     // single unreachable series doesn't abort startup.
     if config.controlled_season_monitoring == ControlledSeasonMonitoring::All {
         info!("controlled_season_monitoring=all: running startup sweep");
-        for (_, _, client) in &sonarr_clients {
+        for (_, _, client, _) in &sonarr_clients {
             match client.series().await {
                 Ok(all_series) => {
                     for mut s in all_series {
