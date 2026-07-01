@@ -184,8 +184,9 @@ impl Actor {
             match self.controlled_season_monitoring {
                 ControlledSeasonMonitoring::OnDemand | ControlledSeasonMonitoring::All => {
                     info!("Not as many episodes announced, applying controlled season monitoring");
+                    let tag = *awaiting_tag_id;
                     sonarr_client
-                        .monitor_next_season_only(&mut series)
+                        .monitor_next_season_only(&mut series, tag)
                         .await?;
                 }
                 ControlledSeasonMonitoring::Off => {
@@ -351,7 +352,7 @@ impl Actor {
         np: &NowPlaying,
         client_idx: usize,
     ) -> Result<sonarr::SeriesResource, anyhow::Error> {
-        let (_, _, sonarr_client) = &self.sonarr_clients[client_idx];
+        let (_, _, sonarr_client, _) = &self.sonarr_clients[client_idx];
         let series = sonarr_client.series().await?;
         let series = series
             .into_iter()
