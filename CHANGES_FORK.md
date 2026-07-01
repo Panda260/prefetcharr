@@ -67,10 +67,16 @@ This setting gives you control over that behaviour.
 3. **Too few episodes** (end of a season):
    - Next season (S+1) **already in Sonarr** → `monitorNewItems = none`  
      _(one season ahead is enough; don't pull in S+2 automatically)_
-   - Next season **not yet in Sonarr** → `monitorNewItems = all` temporarily  
+   - Next season **not yet in Sonarr** → `monitorNewItems = all` temporarily, **and** the series gets tagged with `prefetcharr-awaiting-season` in Sonarr.  
      _(allows Sonarr to discover the season on its next metadata refresh)_  
-     On the next prefetcharr scan, once S+1 is visible, it is reset to `none`.
-
+     
+#### Persistent Background Cleanup
+Because users might stop watching a show before the next season is announced, leaving `monitorNewItems = all` indefinitely would cause all future seasons (S+2, S+3) to download automatically even years later.
+To prevent this, prefetcharr uses **Sonarr Tags** to store state persistently across Docker restarts:
+- Every `interval` (e.g. 300s), prefetcharr runs a background sweep.
+- It asks Sonarr for all series containing the `prefetcharr-awaiting-season` tag.
+- For each tagged series, it checks if the awaited season has finally appeared.
+- If it has, it reverts `monitorNewItems = none` and removes the tag.
 ### Configuration
 
 ```toml

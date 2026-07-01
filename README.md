@@ -33,58 +33,59 @@ See [CHANGES_FORK.md](CHANGES_FORK.md) for the full documentation.
 
 ### Controlled Season Monitoring (`controlled_season_monitoring`)
 
-**Das Problem:** Standardmäßig weist `prefetcharr` Sonarr an, künftig **alle neuen Staffeln** einer Serie automatisch zu überwachen (`Monitor New Seasons = All`), sobald du die aktuell verfügbaren Episoden zu Ende geschaut hast. Das führt dazu, dass Sonarr sofort neue Staffeln herunterlädt, sobald sie angekündigt werden – selbst wenn du z. B. erst bei Staffel 1 bist und gerade Staffel 5 angekündigt wurde.
+**The Problem:** By default, `prefetcharr` tells Sonarr to automatically monitor **all new seasons** of a series (`Monitor New Seasons = All`) as soon as you finish watching the currently available episodes. This causes Sonarr to immediately download new seasons as soon as they are announced – even if you are only on Season 1 and Season 5 was just announced.
 
-Mit dieser Einstellung kannst du dieses Verhalten exakt steuern und Festplattenplatz sparen.
+This setting allows you to strictly control this behavior and save disk space.
 
-#### Die 3 Einstellungs-Möglichkeiten:
+#### The 3 Configuration Options:
 
-1. **`"off"` (Standard-Einstellung)**
-   - **Wie es funktioniert:** Alles bleibt beim Alten. `prefetcharr` ändert das Verhalten von Sonarr nicht.
-   - **Ergebnis:** Wenn dir die Folgen ausgehen, stellt `prefetcharr` die Serie in Sonarr auf "Monitor All New Seasons". Jede künftige Staffel wird automatisch heruntergeladen.
+1. **`"off"` (Default Setting)**
+   - **How it works:** Everything stays the same. `prefetcharr` does not change Sonarr's behavior.
+   - **Result:** When you run out of episodes, `prefetcharr` sets the series in Sonarr to "Monitor All New Seasons". Every future season will be downloaded automatically.
 
-2. **`"on_demand"` (Empfohlen für Platzsparer)**
-   - **Wie es funktioniert:** `prefetcharr` sorgt dafür, dass immer nur **genau eine Staffel im Voraus** überwacht wird, basierend darauf, was du gerade schaust. 
-   - **Beispiel:** Du schaust gerade *Staffel 2*. `prefetcharr` prüft, ob *Staffel 3* existiert. Wenn ja, sagt es Sonarr: *"Überwache keine weiteren neuen Staffeln mehr (Monitor New Seasons = None)"*, denn Staffel 3 reicht völlig aus. Staffel 4 oder 5 werden dann **nicht** mehr automatisch heruntergeladen.
-   - **Hinweis:** Dies passiert "on demand", also immer nur für die Serien, die aktuell auch wirklich von jemandem geschaut werden.
+2. **`"on_demand"` (Recommended for saving space)**
+   - **How it works:** `prefetcharr` ensures that only **exactly one season in advance** is monitored, based on what you are currently watching. 
+   - **Example:** You are currently watching *Season 2*. `prefetcharr` checks if *Season 3* exists. If yes, it tells Sonarr: *"Do not monitor any more new seasons (Monitor New Seasons = None)"*, because Season 3 is completely sufficient. Season 4 or 5 will then **not** be downloaded automatically anymore.
+   - **Note:** This happens "on demand", meaning only for series that are currently actually being watched by someone.
 
-3. **`"all"` (Der radikale Aufräumer)**
-   - **Wie es funktioniert:** Macht genau dasselbe wie `"on_demand"`, aber mit einem extra Schritt beim Starten des Programms.
-   - **Zusatz-Feature:** Jedes Mal, wenn der `prefetcharr`-Container neu startet, geht er **deine komplette Sonarr-Bibliothek** (alle Serien) durch und stellt "Monitor New Seasons" überall hart auf "None". 
-   - **Ergebnis:** Keine einzige Serie in deinem Sonarr lädt mehr automatisch neue Staffeln herunter. Sobald du aber anfängst, eine Serie zu schauen, greift wieder die `"on_demand"`-Logik und lädt für diese eine Serie immer genau die nächste benötigte Staffel herunter.
+3. **`"all"` (The radical cleaner)**
+   - **How it works:** Does exactly the same as `"on_demand"`, but with an extra step when the program starts.
+   - **Additional Feature:** Every time the `prefetcharr` container restarts, it goes through **your entire Sonarr library** (all series) and strictly sets "Monitor New Seasons" to "None" everywhere.
+   - **Result:** Not a single series in your Sonarr will automatically download new seasons anymore. But as soon as you start watching a series, the `"on_demand"` logic kicks back in and always downloads exactly the next needed season for this one series.
 
-**Konfiguration (z.B. in der `docker-compose.yml`):**
+**Configuration (e.g., in `docker-compose.yml`):**
 ```toml
 # In PREFETCHARR_CONFIG:
 controlled_season_monitoring = "on_demand"
 ```
 
-#### Die genaue Logik im Hintergrund (Schritt-für-Schritt):
+#### The exact logic in the background (Step-by-Step):
 
-Damit du genau verstehst, was das Programm unter der Haube entscheidet, hier der genaue Ablaufplan, wenn `"on_demand"` (oder `"all"`) aktiviert ist:
+So you understand exactly what the program decides under the hood, here is the precise flowchart when `"on_demand"` (or `"all"`) is activated:
 
-1. **Jemand schaut eine Serie (z.B. Staffel 2, Episode 9).**
-   `prefetcharr` rechnet aus, dass als nächstes z.B. 3 Folgen benötigt werden (S2E10, S3E1, S3E2).
+1. **Someone watches a series (e.g., Season 2, Episode 9).**
+   `prefetcharr` calculates that, for example, 3 episodes are needed next (S2E10, S3E1, S3E2).
 
-2. **Fehlen Folgen?**
-   - **Nein:** Alles super. Sonarr hat genug Folgen parat. Es passiert nichts.
-   - **Ja:** `prefetcharr` merkt, dass es das Ende der verfügbaren Folgen erreicht hat. Jetzt greift die Logik!
+2. **Are episodes missing?**
+   - **No:** Everything is great. Sonarr has enough episodes ready. Nothing happens.
+   - **Yes:** `prefetcharr` notices that it has reached the end of the available episodes. Now the logic triggers!
 
-3. **Prüfen der höchsten überwachten Staffel:**
-   `prefetcharr` schaut in dein Sonarr und fragt: *"Was ist die höchste Staffel dieser Serie, die gerade von Sonarr überwacht (monitored) wird?"*
-   *(In unserem Beispiel bist du bei Staffel 2, also ist Staffel 2 die höchste überwachte Staffel).*
+3. **Checking the highest monitored season:**
+   `prefetcharr` looks into your Sonarr and asks: *"What is the highest season of this series that is currently monitored by Sonarr?"*
+   *(In our example you are at Season 2, so Season 2 is the highest monitored season).*
 
-4. **Die Entscheidung für die *nächste* Staffel (Staffel 3):**
-   Jetzt prüft das Programm, ob Sonarr die "nächste" Staffel (Staffel 3) **überhaupt schon kennt** (egal ob sie schon runtergeladen ist oder nicht, sie muss nur bei Sonarr in der Übersicht stehen).
+4. **The decision for the *next* season (Season 3):**
+   Now the program checks if Sonarr **even knows** the "next" season (Season 3) at all (regardless of whether it's already downloaded or not, it just has to be in the Sonarr overview).
    
-   - **Bedingung A (Die nächste Staffel existiert bereits in Sonarr):**
-     - **Aktion:** `Monitor New Seasons` wird auf `"None"` gesetzt.
-     - **Warum?** Sonarr weiß bereits von Staffel 3. Das reicht vollkommen aus für deinen nächsten Serienabend. Durch das Setzen auf "None" verhindern wir, dass Sonarr plötzlich anfängt Staffel 4 oder Staffel 5 automatisch zu laden, wenn diese irgendwo im Internet angekündigt werden.
+   - **Condition A (The next season already exists in Sonarr):**
+     - **Action:** `Monitor New Seasons` is set to `"None"`.
+     - **Why?** Sonarr already knows about Season 3. That is completely sufficient for your next TV night. By setting it to "None", we prevent Sonarr from suddenly starting to automatically download Season 4 or Season 5 if they are announced somewhere on the internet.
    
-   - **Bedingung B (Die nächste Staffel ist Sonarr noch völlig unbekannt):**
-     - **Aktion:** `Monitor New Seasons` wird **temporär** auf `"All"` gesetzt.
-     - **Warum?** Die Serie hat vielleicht momentan nur 2 Staffeln. Wir *wollen* aber, dass Sonarr merkt, wenn irgendwann eine 3. Staffel veröffentlicht wird. Durch das "All" darf Sonarr nach neuen Staffeln Ausschau halten. 
-     - **Der Clou:** Sobald Sonarr die 3. Staffel gefunden und in die Liste eingetragen hat, schlägt beim nächsten Scan wieder **Bedingung A** zu – und das Ganze springt wieder sicher zurück auf `"None"`.
+   - **Condition B (The next season is completely unknown to Sonarr):**
+     - **Action:** `Monitor New Seasons` is **temporarily** set to `"All"`.
+     - **Storage (Docker-Safe):** So that `prefetcharr` doesn't forget this (even if you delete or restart the Docker container), it tags the series **in Sonarr** with `prefetcharr-awaiting-season`. The info is therefore safely stored in the Sonarr database.
+     - **Why?** The series might currently only have 2 seasons. But we *want* Sonarr to notice if a 3rd season is published at some point. By using "All", Sonarr is allowed to look out for new seasons.
+     - **The Climax (The Background Check):** `prefetcharr` asks Sonarr in the background every few minutes for series with this tag. As soon as TVDB adds the 3rd season, Sonarr finds it. Our background check notices this, triggers **Condition A** again, safely sets the whole thing back to `"None"` and deletes the tag. Even if you never watch the series again, Sonarr is guaranteed not to download any unwanted seasons 4, 5, etc.
 
 See [CHANGES_FORK.md](CHANGES_FORK.md) for a technical summary.
 
