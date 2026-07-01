@@ -186,7 +186,18 @@ async fn run(config: Config) -> anyhow::Result<()> {
             client.probe().await.context("Probing Sonarr failed")
         })
         .await?;
-        sonarr_clients.push((s_conf.path.clone(), s_conf.exclude_tag.clone(), client));
+        let mut tag_id = None;
+        if matches!(
+            config.controlled_season_monitoring,
+            ControlledSeasonMonitoring::OnDemand | ControlledSeasonMonitoring::All
+        ) {
+            match client.get_or_create_tag("prefetcharr-awaiting-season").await {
+                Ok(id) => tag_id = Some(id),
+                Err(e) => warn!("Failed to get or create tag for Sonarr: {e:#}"),
+            }
+        }
+
+        sonarr_clients.push((s_conf.path.clone(), s_conf.exclude_tag.clone(), client, tag_id));
     }
 
     if sonarr_clients.is_empty() {

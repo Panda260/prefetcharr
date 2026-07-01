@@ -260,6 +260,35 @@ impl Actor {
         Ok(Some(pairs))
     }
 
+    async fn cleanup_awaiting_seasons(&mut self) {
+        for (_, _, client, tag_id) in &mut self.sonarr_clients {
+            let Some(tag_id) = tag_id else { continue };
+
+            match client.series().await {
+                Ok(all_series) => {
+                    for mut s in all_series {
+                        // Check if this series has our awaiting tag
+                        if let Some(tags) = &s.tags {
+                            if tags.contains(tag_id) {
+                                // Run the logic to see if the next season has appeared.
+                                // If it has, monitor_next_season_only will set MonitorNewItems=None
+                                // and remove the tag.
+                                if let Err(e) = client.monitor_next_season_only(&mut s, Some(*tag_id)).await {
+                                    warn!(
+                                        series_id = s.id,
+                                        title = ?s.title,
+                                        "cleanup: failed to run next season check for series: {e:#}"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => warn!("cleanup: failed to fetch series: {e:#}"),
+            }
+        }
+    }
+
     fn refresh_pending(&mut self, np: &NowPlaying) {
         let Some(sid) = np.session_id.as_deref() else {
             return;
@@ -402,7 +431,7 @@ mod test {
         let sonarr = crate::sonarr::Client::new(fake.url(), "secret").unwrap();
         super::Actor::new(
             rx,
-            vec![(None, None, sonarr)],
+            vec![(None, None, sonarr, None)],
             once::Seen::default(),
             prefetch_num,
             false,
@@ -450,7 +479,7 @@ mod test {
         let sonarr = crate::sonarr::Client::new(fake.url(), "secret").unwrap();
         super::Actor::new(
             rx,
-            vec![(None, exclude_tag, sonarr)],
+            vec![(None, exclude_tag, sonarr, None)],
             once::Seen::default(),
             prefetch_num,
             request_seasons,
@@ -470,7 +499,7 @@ mod test {
         let sonarr = crate::sonarr::Client::new(fake.url(), "secret").unwrap();
         super::Actor::new(
             rx,
-            vec![(None, None, sonarr)],
+            vec![(None, None, sonarr, None)],
             once::Seen::default(),
             prefetch_num,
             request_seasons,
