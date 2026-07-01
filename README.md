@@ -59,7 +59,34 @@ Mit dieser Einstellung kannst du dieses Verhalten exakt steuern und Festplattenp
 controlled_season_monitoring = "on_demand"
 ```
 
-See [CHANGES_FORK.md](CHANGES_FORK.md) for a detailed technical explanation of the logic.
+#### Die genaue Logik im Hintergrund (Schritt-für-Schritt):
+
+Damit du genau verstehst, was das Programm unter der Haube entscheidet, hier der genaue Ablaufplan, wenn `"on_demand"` (oder `"all"`) aktiviert ist:
+
+1. **Jemand schaut eine Serie (z.B. Staffel 2, Episode 9).**
+   `prefetcharr` rechnet aus, dass als nächstes z.B. 3 Folgen benötigt werden (S2E10, S3E1, S3E2).
+
+2. **Fehlen Folgen?**
+   - **Nein:** Alles super. Sonarr hat genug Folgen parat. Es passiert nichts.
+   - **Ja:** `prefetcharr` merkt, dass es das Ende der verfügbaren Folgen erreicht hat. Jetzt greift die Logik!
+
+3. **Prüfen der höchsten überwachten Staffel:**
+   `prefetcharr` schaut in dein Sonarr und fragt: *"Was ist die höchste Staffel dieser Serie, die gerade von Sonarr überwacht (monitored) wird?"*
+   *(In unserem Beispiel bist du bei Staffel 2, also ist Staffel 2 die höchste überwachte Staffel).*
+
+4. **Die Entscheidung für die *nächste* Staffel (Staffel 3):**
+   Jetzt prüft das Programm, ob Sonarr die "nächste" Staffel (Staffel 3) **überhaupt schon kennt** (egal ob sie schon runtergeladen ist oder nicht, sie muss nur bei Sonarr in der Übersicht stehen).
+   
+   - **Bedingung A (Die nächste Staffel existiert bereits in Sonarr):**
+     - **Aktion:** `Monitor New Seasons` wird auf `"None"` gesetzt.
+     - **Warum?** Sonarr weiß bereits von Staffel 3. Das reicht vollkommen aus für deinen nächsten Serienabend. Durch das Setzen auf "None" verhindern wir, dass Sonarr plötzlich anfängt Staffel 4 oder Staffel 5 automatisch zu laden, wenn diese irgendwo im Internet angekündigt werden.
+   
+   - **Bedingung B (Die nächste Staffel ist Sonarr noch völlig unbekannt):**
+     - **Aktion:** `Monitor New Seasons` wird **temporär** auf `"All"` gesetzt.
+     - **Warum?** Die Serie hat vielleicht momentan nur 2 Staffeln. Wir *wollen* aber, dass Sonarr merkt, wenn irgendwann eine 3. Staffel veröffentlicht wird. Durch das "All" darf Sonarr nach neuen Staffeln Ausschau halten. 
+     - **Der Clou:** Sobald Sonarr die 3. Staffel gefunden und in die Liste eingetragen hat, schlägt beim nächsten Scan wieder **Bedingung A** zu – und das Ganze springt wieder sicher zurück auf `"None"`.
+
+See [CHANGES_FORK.md](CHANGES_FORK.md) for a technical summary.
 
 ---
 
