@@ -365,6 +365,13 @@ impl Client {
                 let original_len = tags.len();
                 tags.retain(|&id| id != tag_id);
                 if tags.len() != original_len {
+                    debug!(
+                        "\n--------------------------------------------------------------------------------\n\
+                         🏷️ TAG UPDATE: {}\n\
+                         ▶ Action: Removed awaiting tag {}\n\
+                         --------------------------------------------------------------------------------",
+                        title_str, tag_id
+                    );
                     needs_update = true;
                 }
             }
@@ -388,6 +395,13 @@ impl Client {
                 let tags = series.tags.get_or_insert_with(Vec::new);
                 if !tags.contains(&tag_id) {
                     tags.push(tag_id);
+                    debug!(
+                        "\n--------------------------------------------------------------------------------\n\
+                         🏷️ TAG UPDATE: {}\n\
+                         ▶ Action: Added awaiting tag {}\n\
+                         --------------------------------------------------------------------------------",
+                        title_str, tag_id
+                    );
                     needs_update = true;
                 }
             }
@@ -420,6 +434,10 @@ impl Client {
     /// for a series without touching season or episode state.
     /// Used by the `controlled_season_monitoring = "all"` startup sweep.
     pub async fn set_monitor_new_items_none(&self, series: &mut SeriesResource) -> Result<()> {
+        if series.monitored && series.monitor_new_items == Some(NewItemMonitorTypes::None) {
+            return Ok(());
+        }
+
         let title_str = series.title.as_deref().unwrap_or("Unknown");
         info!(
             "\n--------------------------------------------------------------------------------\n\
