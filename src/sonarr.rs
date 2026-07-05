@@ -324,7 +324,13 @@ impl Client {
         series: &mut SeriesResource,
         awaiting_tag_id: Option<i32>,
     ) -> Result<()> {
-        series.monitored = true;
+        let mut needs_update = false;
+
+        if !series.monitored {
+            series.monitored = true;
+            needs_update = true;
+        }
+        
         let title_str = series.title.as_deref().unwrap_or("Unknown");
 
         // Determine the highest real (non-special) season number that is currently monitored.
@@ -352,10 +358,15 @@ impl Client {
                     title_str, next_season_num, series.monitor_new_items
                 );
                 series.monitor_new_items = Some(NewItemMonitorTypes::None);
+                needs_update = true;
             }
             
             if let (Some(tag_id), Some(tags)) = (awaiting_tag_id, &mut series.tags) {
+                let original_len = tags.len();
                 tags.retain(|&id| id != tag_id);
+                if tags.len() != original_len {
+                    needs_update = true;
+                }
             }
         } else {
             let state_changed = series.monitor_new_items != Some(NewItemMonitorTypes::All);
@@ -370,19 +381,28 @@ impl Client {
                     title_str, next_season_num, series.monitor_new_items
                 );
                 series.monitor_new_items = Some(NewItemMonitorTypes::All);
+                needs_update = true;
             }
             
             if let Some(tag_id) = awaiting_tag_id {
                 let tags = series.tags.get_or_insert_with(Vec::new);
                 if !tags.contains(&tag_id) {
                     tags.push(tag_id);
+                    needs_update = true;
                 }
             }
         }
 
         // Monitor new episode announcements in last season, but restore episode state.
         if let Some(last_season) = series.seasons.last_mut() {
-            last_season.monitored = true;
+            if !last_season.monitored {
+                last_season.monitored = true;
+                needs_update = true;
+            }
+        }
+
+        if !needs_update {
+            return Ok(());
         }
 
         if let Some(last_season) = series.seasons.last() {
@@ -570,7 +590,7 @@ impl SeasonResource {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum NewItemMonitorTypes {
     All,
