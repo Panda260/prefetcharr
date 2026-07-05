@@ -129,7 +129,16 @@ impl Actor {
 
     async fn run_prefetch(&mut self, np: &NowPlaying) -> anyhow::Result<Option<Vec<EpisodeRef>>> {
         if !self.seen.once(PrefetchKey::from(np)) {
-            debug!(now_playing = ?np, "skip previously processed item");
+            debug!(
+                "\n--------------------------------------------------------------------------------\n\
+                 ⏭️ SKIP PREVIOUSLY PROCESSED ITEM\n\
+                 ▶ User:    {}\n\
+                 ▶ Series:  {:?}\n\
+                 ▶ Season:  {:02}\n\
+                 ▶ Episode: {:02}\n\
+                 --------------------------------------------------------------------------------",
+                np.user.name, np.series, np.season, np.episode
+            );
             return Ok(None);
         }
 
@@ -158,7 +167,15 @@ impl Actor {
 
         let mut series = self.find_series(np, client_idx).await?;
 
-        info!(title = series.title.clone().unwrap_or_else(|| "?".to_string()), now_playing = ?np);
+        info!(
+            "\n--------------------------------------------------------------------------------\n\
+             ▶️ NOW PLAYING: {}\n\
+             ▶ User:    {}\n\
+             ▶ Season:  {:02}\n\
+             ▶ Episode: {:02}\n\
+             --------------------------------------------------------------------------------",
+            series.title.as_deref().unwrap_or("?"), np.user.name, np.season, np.episode
+        );
 
         let (_, exclude_tag, sonarr_client, awaiting_tag_id) = &mut self.sonarr_clients[client_idx];
 

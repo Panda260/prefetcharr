@@ -10,9 +10,14 @@ pub fn users(users: &[String]) -> impl FnMut(&NowPlaying) -> Ready<bool> {
             users.is_empty() || users.contains(&np.user.id) || users.contains(&np.user.name);
         if !accept {
             debug!(
-                now_playing = ?np,
-                ?users,
-                "Ignoring session from unwanted user"
+                "\n--------------------------------------------------------------------------------\n\
+                 ⛔ REJECTED SESSION\n\
+                 ▶ Reason:  Unwanted user\n\
+                 ▶ User:    {}\n\
+                 ▶ Series:  {:?}\n\
+                 ▶ Config:  {:?}\n\
+                 --------------------------------------------------------------------------------",
+                np.user.name, np.series, users
             );
         }
         ready(accept)
@@ -25,9 +30,14 @@ pub fn libraries(libraries: &[String]) -> impl FnMut(&NowPlaying) -> Ready<bool>
         let accept = libraries.is_empty() || library.is_some_and(|l| libraries.contains(l));
         if !accept {
             debug!(
-                now_playing = ?np,
-                ?libraries,
-                "Ignoring session from unwanted library"
+                "\n--------------------------------------------------------------------------------\n\
+                 ⛔ REJECTED SESSION\n\
+                 ▶ Reason:  Unwanted library\n\
+                 ▶ Library: {}\n\
+                 ▶ Series:  {:?}\n\
+                 ▶ Config:  {:?}\n\
+                 --------------------------------------------------------------------------------",
+                np.library.as_deref().unwrap_or("None"), np.series, libraries
             );
         }
         ready(accept)
