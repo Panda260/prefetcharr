@@ -340,34 +340,37 @@ impl Client {
         let next_season_exists = series.season(next_season_num).is_some();
 
         if next_season_exists {
-            info!(
-                "\n--------------------------------------------------------------------------------\n\
-                 ⚙️ MONITORING UPDATE: {}\n\
-                 ▶ Reason: Next season {} already exists in Sonarr\n\
-                 ▶ Action: Setting monitorNewItems to None (No more automatic downloads)\n\
-                 ▶ State Change: {:?} -> Some(None)\n\
-                 --------------------------------------------------------------------------------",
-                title_str, next_season_num, series.monitor_new_items
-            );
-            // The next season is already in Sonarr → keep monitorNewItems = None.
-            // We don't want Sonarr to pull in yet another season beyond that.
-            series.monitor_new_items = Some(NewItemMonitorTypes::None);
+            let state_changed = series.monitor_new_items != Some(NewItemMonitorTypes::None);
+            if state_changed {
+                info!(
+                    "\n--------------------------------------------------------------------------------\n\
+                     ⚙️ MONITORING UPDATE: {}\n\
+                     ▶ Reason: Next season {} already exists in Sonarr\n\
+                     ▶ Action: Setting monitorNewItems to None (No more automatic downloads)\n\
+                     ▶ State Change: {:?} -> Some(None)\n\
+                     --------------------------------------------------------------------------------",
+                    title_str, next_season_num, series.monitor_new_items
+                );
+                series.monitor_new_items = Some(NewItemMonitorTypes::None);
+            }
             
             if let (Some(tag_id), Some(tags)) = (awaiting_tag_id, &mut series.tags) {
                 tags.retain(|&id| id != tag_id);
             }
         } else {
-            info!(
-                "\n--------------------------------------------------------------------------------\n\
-                 ⚙️ MONITORING UPDATE: {}\n\
-                 ▶ Reason: Next season {} not announced yet\n\
-                 ▶ Action: Setting monitorNewItems to All (Allow Sonarr to discover it)\n\
-                 ▶ State Change: {:?} -> Some(All)\n\
-                 --------------------------------------------------------------------------------",
-                title_str, next_season_num, series.monitor_new_items
-            );
-            // The next season hasn't been announced yet → allow Sonarr to discover it.
-            series.monitor_new_items = Some(NewItemMonitorTypes::All);
+            let state_changed = series.monitor_new_items != Some(NewItemMonitorTypes::All);
+            if state_changed {
+                info!(
+                    "\n--------------------------------------------------------------------------------\n\
+                     ⚙️ MONITORING UPDATE: {}\n\
+                     ▶ Reason: Next season {} not announced yet\n\
+                     ▶ Action: Setting monitorNewItems to All (Allow Sonarr to discover it)\n\
+                     ▶ State Change: {:?} -> Some(All)\n\
+                     --------------------------------------------------------------------------------",
+                    title_str, next_season_num, series.monitor_new_items
+                );
+                series.monitor_new_items = Some(NewItemMonitorTypes::All);
+            }
             
             if let Some(tag_id) = awaiting_tag_id {
                 let tags = series.tags.get_or_insert_with(Vec::new);
