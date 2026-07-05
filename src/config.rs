@@ -50,25 +50,11 @@ where
     }
 }
 
-#[derive(Clone, Copy, Deserialize)]
+#[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum LogLevel {
-    Trace,
+    None,
     Debug,
-    Info,
-    Warn,
-    Error,
-}
-
-impl From<LogLevel> for tracing::Level {
-    fn from(value: LogLevel) -> Self {
-        match value {
-            LogLevel::Trace => tracing::Level::TRACE,
-            LogLevel::Debug => tracing::Level::DEBUG,
-            LogLevel::Info => tracing::Level::INFO,
-            LogLevel::Warn => tracing::Level::WARN,
-            LogLevel::Error => tracing::Level::ERROR,
-        }
-    }
 }
 
 /// Controls whether prefetcharr limits Sonarr to monitoring only one season

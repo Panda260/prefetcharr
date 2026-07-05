@@ -95,6 +95,7 @@ impl Actor {
                 _ = gc.tick() => {
                     self.gc_pending();
                     self.publish_has_pending();
+                    self.cleanup_awaiting_seasons().await;
                 }
             }
         }

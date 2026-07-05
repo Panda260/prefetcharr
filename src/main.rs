@@ -314,14 +314,19 @@ fn enable_logging(log_dir: Option<&PathBuf>, level: Option<config::LogLevel>) {
     // this override, a Targets/EnvFilter that allows DEBUG would still be
     // gated by the inner cap and DEBUG events would never reach the writer.
     let subscriber = tracing_subscriber::fmt()
+        .compact()
         .with_ansi(stderr().is_terminal())
         .with_writer(stderr)
         .with_max_level(tracing_subscriber::filter::LevelFilter::TRACE)
         .finish();
 
-    let filter = if let Some(level) = level {
+    let is_none = matches!(level, Some(config::LogLevel::None));
+
+    let filter = if is_none {
+        tracing_subscriber::filter::Targets::new().boxed()
+    } else if let Some(config::LogLevel::Debug) = level {
         tracing_subscriber::filter::Targets::new()
-            .with_target(env!("CARGO_PKG_NAME"), tracing::Level::from(level))
+            .with_target(env!("CARGO_PKG_NAME"), tracing::Level::TRACE)
             .boxed()
     } else {
         EnvFilter::builder().from_env_lossy().boxed()
@@ -330,6 +335,7 @@ fn enable_logging(log_dir: Option<&PathBuf>, level: Option<config::LogLevel>) {
     let rolling_layer = log_dir.as_ref().map(|log_dir| {
         let file_appender = tracing_appender::rolling::daily(log_dir, "prefetcharr.log");
         tracing_subscriber::fmt::layer()
+            .compact()
             .with_ansi(false)
             .with_writer(file_appender)
     });
