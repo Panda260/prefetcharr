@@ -15,6 +15,9 @@ pub struct MediaServer {
     /// User IDs or names to monitor episodes for (default: empty/all users)
     #[serde(default)]
     pub users: Vec<String>,
+    /// User IDs or names to ignore episodes for (default: empty/no ignored users)
+    #[serde(default)]
+    pub ignore_users: Vec<String>,
     /// Library names to monitor episodes for. (default: empty/all libraries)
     #[serde(default)]
     pub libraries: Vec<String>,
@@ -118,6 +121,7 @@ impl From<LegacyArgs> for Config {
             log_dir,
             remaining_episodes,
             users,
+            ignore_users,
             connection_retries,
             libraries,
         }: LegacyArgs,
@@ -127,6 +131,7 @@ impl From<LegacyArgs> for Config {
             url: media_server_url,
             api_key: media_server_api_key,
             users,
+            ignore_users,
             libraries,
         };
         let sonarr = Sonarr {

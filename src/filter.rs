@@ -24,6 +24,25 @@ pub fn users(users: &[String]) -> impl FnMut(&NowPlaying) -> Ready<bool> {
     }
 }
 
+pub fn ignore_users(ignored: &[String]) -> impl FnMut(&NowPlaying) -> Ready<bool> {
+    move |np: &NowPlaying| {
+        let accept = !ignored.contains(&np.user.id) && !ignored.contains(&np.user.name);
+        if !accept {
+            debug!(
+                "\n--------------------------------------------------------------------------------\n\
+                 ⛔ REJECTED SESSION\n\
+                 ▶ Reason:  Ignored user\n\
+                 ▶ User:    {}\n\
+                 ▶ Series:  {:?}\n\
+                 ▶ Config:  {:?}\n\
+                 --------------------------------------------------------------------------------",
+                np.user.name, np.series, ignored
+            );
+        }
+        ready(accept)
+    }
+}
+
 pub fn libraries(libraries: &[String]) -> impl FnMut(&NowPlaying) -> Ready<bool> {
     move |np: &NowPlaying| {
         let library = np.library.as_ref();
@@ -37,7 +56,9 @@ pub fn libraries(libraries: &[String]) -> impl FnMut(&NowPlaying) -> Ready<bool>
                  ▶ Series:  {:?}\n\
                  ▶ Config:  {:?}\n\
                  --------------------------------------------------------------------------------",
-                np.library.as_deref().unwrap_or("None"), np.series, libraries
+                np.library.as_deref().unwrap_or("None"),
+                np.series,
+                libraries
             );
         }
         ready(accept)
@@ -59,6 +80,7 @@ mod test {
             },
             library: None,
             session_id: None,
+            item_path: None,
         }
     }
 
@@ -106,6 +128,58 @@ mod test {
         let mut filter = super::users(users.as_slice());
         let np = NowPlaying { ..np_default() };
         assert!(!filter(&np).await);
+    }
+
+    // Empty ignore list accepts all sessions
+    #[tokio::test]
+    async fn ignore_users_unrestricted() {
+        let mut filter = super::ignore_users(&[]);
+        assert!(filter(&np_default()).await);
+    }
+
+    // Sessions matching an ignored user name are rejected
+    #[tokio::test]
+    async fn ignore_users_rejected_by_name() {
+        let ignored = vec!["Other".to_string(), "User".to_string()];
+        let mut filter = super::ignore_users(ignored.as_slice());
+        let np = NowPlaying {
+            user: User {
+                id: "1".to_string(),
+                name: "User".to_string(),
+            },
+            ..np_default()
+        };
+        assert!(!filter(&np).await);
+    }
+
+    // Sessions matching an ignored user ID are rejected
+    #[tokio::test]
+    async fn ignore_users_rejected_by_id() {
+        let ignored = vec!["1".to_string(), "2".to_string()];
+        let mut filter = super::ignore_users(ignored.as_slice());
+        let np = NowPlaying {
+            user: User {
+                id: "1".to_string(),
+                name: "User".to_string(),
+            },
+            ..np_default()
+        };
+        assert!(!filter(&np).await);
+    }
+
+    // Sessions not matching any ignored user are accepted
+    #[tokio::test]
+    async fn ignore_users_accepted() {
+        let ignored = vec!["Nope".to_string()];
+        let mut filter = super::ignore_users(ignored.as_slice());
+        let np = NowPlaying {
+            user: User {
+                id: "1".to_string(),
+                name: "User".to_string(),
+            },
+            ..np_default()
+        };
+        assert!(filter(&np).await);
     }
 
     // Empty library list accepts all sessions
