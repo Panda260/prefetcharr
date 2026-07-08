@@ -29,7 +29,12 @@ struct Pending {
 
 pub struct Actor {
     rx: mpsc::Receiver<Message>,
-    sonarr_clients: Vec<(Option<String>, Option<sonarr::Tag>, sonarr::Client, Option<i32>)>,
+    sonarr_clients: Vec<(
+        Option<String>,
+        Option<sonarr::Tag>,
+        sonarr::Client,
+        Option<i32>,
+    )>,
     seen: Seen<PrefetchKey>,
     prefetch_num: usize,
     request_seasons: bool,
@@ -57,9 +62,10 @@ impl Actor {
             .into_iter()
             .map(|(p, t, c, tag)| (p, t.map(sonarr::Tag::from), c, tag))
             .collect();
-            
+
         // Sort by path length descending to avoid prefix collisions (e.g. /nas/media/serien-4k/ matches before /nas/media/serien/)
-        sonarr_clients.sort_by_key(|(p, _, _, _)| std::cmp::Reverse(p.as_ref().map_or(0, |s| s.len())));
+        sonarr_clients
+            .sort_by_key(|(p, _, _, _)| std::cmp::Reverse(p.as_ref().map_or(0, |s| s.len())));
 
         Self {
             rx,
@@ -150,7 +156,8 @@ impl Actor {
                 if let (Some(path), Some(item_path)) = (path, &np.item_path) {
                     let path_lower = path.to_lowercase();
                     let item_path_lower = item_path.to_lowercase();
-                    item_path_lower.starts_with(&path_lower) || item_path_lower.contains(&path_lower)
+                    item_path_lower.starts_with(&path_lower)
+                        || item_path_lower.contains(&path_lower)
                 } else {
                     false
                 }
@@ -174,7 +181,10 @@ impl Actor {
              ▶ Season:  {:02}\n\
              ▶ Episode: {:02}\n\
              --------------------------------------------------------------------------------",
-            series.title.as_deref().unwrap_or("?"), np.user.name, np.season, np.episode
+            series.title.as_deref().unwrap_or("?"),
+            np.user.name,
+            np.season,
+            np.episode
         );
 
         let (_, exclude_tag, sonarr_client, awaiting_tag_id) = &mut self.sonarr_clients[client_idx];
@@ -245,10 +255,7 @@ impl Actor {
 
             let mut error = false;
             for season_num in season_numbers {
-                if let Err(err) = sonarr_client
-                    .search_season(&mut series, season_num)
-                    .await
-                {
+                if let Err(err) = sonarr_client.search_season(&mut series, season_num).await {
                     error!("skip searching for season {season_num}: {err:#}");
                     error = true;
                 }
@@ -271,9 +278,7 @@ impl Actor {
             sonarr_client
                 .update_episode_monitoring(&episodes_to_search)
                 .await?;
-            sonarr_client
-                .search_episodes(&episodes_to_search)
-                .await?;
+            sonarr_client.search_episodes(&episodes_to_search).await?;
         }
 
         Ok(Some(pairs))
@@ -292,7 +297,9 @@ impl Actor {
                                 // Run the logic to see if the next season has appeared.
                                 // If it has, monitor_next_season_only will set MonitorNewItems=None
                                 // and remove the tag.
-                                if let Err(e) = client.monitor_next_season_only(&mut s, Some(*tag_id)).await {
+                                if let Err(e) =
+                                    client.monitor_next_season_only(&mut s, Some(*tag_id)).await
+                                {
                                     warn!(
                                         series_id = s.id,
                                         title = ?s.title,
@@ -1245,8 +1252,8 @@ mod test {
     // monitorNewItems stays "all" (original monitor_unannounced_episodes path).
     #[tokio::test]
     #[test_log::test]
-    async fn controlled_monitoring_disabled_preserves_original_behaviour(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn controlled_monitoring_disabled_preserves_original_behaviour()
+    -> Result<(), Box<dyn std::error::Error>> {
         let fake = FakeSonarr::start().await;
         fake.add_series(default_series()); // S0, S1, S2
         fake.add_episodes(default_episodes()); // user at S2E07
