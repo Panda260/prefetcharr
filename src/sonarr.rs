@@ -330,7 +330,7 @@ impl Client {
             series.monitored = true;
             needs_update = true;
         }
-        
+
         let title_str = series.title.as_deref().unwrap_or("Unknown");
 
         // Determine the highest real (non-special) season number that is currently monitored.
@@ -360,7 +360,7 @@ impl Client {
                 series.monitor_new_items = Some(NewItemMonitorTypes::None);
                 needs_update = true;
             }
-            
+
             if let (Some(tag_id), Some(tags)) = (awaiting_tag_id, &mut series.tags) {
                 let original_len = tags.len();
                 tags.retain(|&id| id != tag_id);
@@ -390,7 +390,7 @@ impl Client {
                 series.monitor_new_items = Some(NewItemMonitorTypes::All);
                 needs_update = true;
             }
-            
+
             if let Some(tag_id) = awaiting_tag_id {
                 let tags = series.tags.get_or_insert_with(Vec::new);
                 if !tags.contains(&tag_id) {

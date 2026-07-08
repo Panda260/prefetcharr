@@ -75,6 +75,11 @@ struct LegacyArgs {
     /// Each entry here is checked against the user's ID and name
     #[arg(long, value_name = "USER", value_delimiter = ',', num_args = 0..)]
     users: Vec<String>,
+    /// User IDs or names to ignore episodes for (default: empty/no ignored users)
+    ///
+    /// Each entry here is checked against the user's ID and name
+    #[arg(long, value_name = "USER", value_delimiter = ',', num_args = 0..)]
+    ignore_users: Vec<String>,
     /// Number of retries for the initial connection probing
     #[arg(long, value_name = "NUM", default_value_t = 0)]
     connection_retries: usize,
@@ -191,13 +196,21 @@ async fn run(config: Config) -> anyhow::Result<()> {
             config.controlled_season_monitoring,
             ControlledSeasonMonitoring::OnDemand | ControlledSeasonMonitoring::All
         ) {
-            match client.get_or_create_tag("prefetcharr-awaiting-season").await {
+            match client
+                .get_or_create_tag("prefetcharr-awaiting-season")
+                .await
+            {
                 Ok(id) => tag_id = Some(id),
                 Err(e) => warn!("Failed to get or create tag for Sonarr: {e:#}"),
             }
         }
 
-        sonarr_clients.push((s_conf.path.clone(), s_conf.exclude_tag.clone(), client, tag_id));
+        sonarr_clients.push((
+            s_conf.path.clone(),
+            s_conf.exclude_tag.clone(),
+            client,
+            tag_id,
+        ));
     }
 
     if sonarr_clients.is_empty() {
@@ -286,6 +299,9 @@ async fn run(config: Config) -> anyhow::Result<()> {
         .inspect_err(|err| error!("Cannot fetch sessions from media server: {err}"))
         .filter_map(async |res| res.ok()) // remove errors
         .filter(filter::users(config.media_server.users.as_slice()))
+        .filter(filter::ignore_users(
+            config.media_server.ignore_users.as_slice(),
+        ))
         .filter(filter::libraries(config.media_server.libraries.as_slice()))
         .map(Message::NowPlaying)
         .map(Ok) // align with the error type of `PollSender`

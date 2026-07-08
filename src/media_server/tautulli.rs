@@ -261,6 +261,7 @@ mod test {
                     id: "29344801".into(),
                 },
                 session_id: None,
+                item_path: None,
             }
         );
 
