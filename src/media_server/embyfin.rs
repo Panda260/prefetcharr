@@ -567,6 +567,7 @@ mod test {
         let message = np_updates.next().await.transpose().unwrap();
         let message_expect = NowPlaying {
             library: Some("TV Shows".to_string()),
+            item_path: Some("/media/tv/a/b/c.mkv".to_string()),
             ..np_default()
         };
 
@@ -643,7 +644,10 @@ mod test {
 
         let mut np_updates = client.now_playing_updates(Duration::from_secs(100), idle_pending());
         let message = np_updates.next().await.transpose().unwrap();
-        let message_expect = np_default();
+        let message_expect = NowPlaying {
+            item_path: Some("/media/a/b/c.mkv".to_string()),
+            ..np_default()
+        };
 
         assert_eq!(message, Some(message_expect));
 
@@ -697,6 +701,7 @@ mod test {
         let message = np_updates.next().await.transpose().unwrap();
         let message_expect = NowPlaying {
             series: Series::Title("Test Show".to_string()),
+            item_path: Some("/media/tv/a/b/c.mkv".to_string()),
             ..np_default()
         };
 
